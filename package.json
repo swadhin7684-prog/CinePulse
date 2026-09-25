@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"yellow,cyan\" \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
     "build": "cd frontend && npm install && npm run build",
     "vercel-build": "cd frontend && npm install && npm run build"
   },
@@ -17,5 +20,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
     "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
