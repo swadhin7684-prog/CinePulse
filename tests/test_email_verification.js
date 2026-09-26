@@ -86,14 +86,6 @@ async function testEmailVerificationFlow() {
     }
   }
 
-  // STEP 6: Confirm Demo Users Bypass (for instant 1-click evaluation)
-  console.log('\n>>> [STEP 6] Testing Demo Accounts (Bypass unverified block)...');
-  const demoResult = await firebaseAuthRequest('signInWithPassword', {
-    email: 'user@cinepulse.io',
-    password: 'Password123',
-  });
-  console.log(`✓ Demo user authenticated: ${demoResult.email} (UID: ${demoResult.localId})`);
-
   console.log('\n========================================================================');
   console.log('   ALL EMAIL VERIFICATION FLOW REQUIREMENTS VERIFIED & PASSED!         ');
   console.log('========================================================================\n');

@@ -15,8 +15,11 @@ frontend/dist/
 backend/.env
 frontend/.env
 
-# Temporary test scripts
-test_e2e_api.js
+# Vercel
+.vercel/
+
+# Credentials
+*serviceAccountKey*.json
 
 # Logs
 *.log

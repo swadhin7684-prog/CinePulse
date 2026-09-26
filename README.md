@@ -30,7 +30,7 @@ A production-grade, full-stack video streaming web application designed with mod
   - TV Shows & Episodes manager.
   - Household accounts & profiles monitor.
   - Genre taxonomy manager.
-- **Production Hardening**: JWT Bearer tokens, bcrypt hashing, Helmet security headers, rate limiting on authentication routes, CORS configuration, and centralized error handling.
+- **Production Hardening**: Firebase Authentication (Email/Password & Google Sign-In), Firebase Admin SDK ID token verification, Helmet security headers, rate limiting on authentication routes, CORS configuration, and centralized error handling.
 
 ---
 
