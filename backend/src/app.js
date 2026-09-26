@@ -7,6 +7,8 @@ import rateLimit from 'express-rate-limit';
 
 import { checkFirestoreHealth } from './config/firebase.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import * as dbService from './services/firestoreDb.js';
+import { seedDatabase } from './utils/seedData.js';
 
 // Route imports
 import authRoutes from './routes/authRoutes.js';
@@ -74,6 +76,43 @@ app.get('/api/health', async (req, res) => {
     environment: process.env.NODE_ENV || 'development',
     database: dbHealth,
   });
+});
+
+// Auto-seed catalog if empty (ensures movies are present on Vercel serverless cold-start)
+let isSeeded = false;
+let seedPromise = null;
+
+const ensureDataSeeded = async () => {
+  if (isSeeded) return;
+  if (!seedPromise) {
+    seedPromise = (async () => {
+      try {
+        const count = await dbService.count('movies');
+        if (count === 0) {
+          console.log('[Server] Database is empty. Seeding catalog...');
+          await seedDatabase();
+        }
+        isSeeded = true;
+      } catch (err) {
+        console.warn('[Server] Auto-seed check warning:', err.message);
+      } finally {
+        seedPromise = null;
+      }
+    })();
+  }
+  await seedPromise;
+};
+
+// Middleware to ensure DB has content on first catalog request
+app.use(async (req, res, next) => {
+  if (!isSeeded && req.path.startsWith('/api') && req.path !== '/api/health') {
+    try {
+      await ensureDataSeeded();
+    } catch (e) {
+      // Ignore seeding error, continue handling request
+    }
+  }
+  next();
 });
 
 // Mount Routes

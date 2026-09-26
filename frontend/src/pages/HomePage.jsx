@@ -100,6 +100,28 @@ export const HomePage = () => {
     );
   }
 
+  if (!featuredMovie && trending.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#08090d] text-white flex flex-col items-center justify-center px-4 py-32 text-center">
+        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 mb-4 border border-red-500/20">
+          <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold mb-2">Connecting to CinePulse Catalog...</h2>
+        <p className="text-gray-400 max-w-md mb-6">
+          The serverless catalog is preparing your stream. Click below to load trending titles and blockbusters.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors shadow-lg shadow-red-600/30"
+        >
+          Load Catalog
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#08090d] text-white pb-16">
       {/* Featured Hero Banner */}

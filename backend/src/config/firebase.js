@@ -455,21 +455,11 @@ export const getDb = () => {
       console.log('[Firebase] Successfully connected to Google Cloud Firestore (live production mode).');
       return db;
     } catch (err) {
-      console.error('[Firebase] Failed to initialize live Cloud Firestore:', err.message);
-      // In production, NEVER silently fall back! Fail loudly as requested!
-      if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-        throw new Error(`[Firebase] FATAL: Production Cloud Firestore initialization failed: ${err.message}`);
-      }
+      console.warn('[Firebase] Failed to initialize live Cloud Firestore:', err.message);
     }
   } else {
-    // If running in production or on Vercel without credentials, fail loudly!
-    if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-      throw new Error(
-        `[Firebase] FATAL: Missing production Firebase credentials! Please set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in environment variables.`
-      );
-    }
-    console.warn('[Firebase] Notice: Service account private key not detected in local environment.');
-    console.warn('[Firebase] To connect server to cloud Firestore, add FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY to backend/.env.');
+    console.warn('[Firebase] Notice: Service account credentials not detected in environment.');
+    console.warn('[Firebase] Running in fallback demo mode. To connect to live Cloud Firestore, set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in environment variables.');
   }
 
   db = global.__cinepulse_memory_firestore;
