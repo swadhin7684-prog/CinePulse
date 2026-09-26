@@ -3,13 +3,15 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Play, Lock, Mail, ArrowRight, Shield, User, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { EmailVerificationScreen } from '../components/auth/EmailVerificationScreen';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState(null);
 
-  const { login } = useAuth();
+  const { login, resendVerification } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
@@ -29,6 +31,20 @@ export const LoginPage = () => {
       toast.success('Welcome back to CinePulse!');
       navigate(from, { replace: true });
     } catch (err) {
+      // Requirement: If email not verified on Login -> block + show same screen
+      if (
+        err.message === 'EMAIL_NOT_VERIFIED' ||
+        err.code === 'auth/email-not-verified' ||
+        err.message?.includes('EMAIL_NOT_VERIFIED')
+      ) {
+        setUnverifiedEmail({
+          email: email.trim(),
+          idToken: err.idToken,
+          password,
+        });
+        return;
+      }
+
       let msg = err.message || 'Login failed. Please check your credentials.';
       if (
         err.code === 'auth/invalid-credential' ||
@@ -52,7 +68,20 @@ export const LoginPage = () => {
   const fillCredentials = (demoEmail, demoPass) => {
     setEmail(demoEmail);
     setPassword(demoPass);
+    setUnverifiedEmail(null);
   };
+
+  // If email is not verified on Login -> block + show the exact same screen
+  if (unverifiedEmail) {
+    return (
+      <EmailVerificationScreen
+        email={unverifiedEmail.email}
+        onGoToLogin={() => setUnverifiedEmail(null)}
+        onResendEmail={() => resendVerification(unverifiedEmail)}
+        isFromLogin={true}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen relative flex items-center justify-center p-4 bg-[#08090d] overflow-hidden">

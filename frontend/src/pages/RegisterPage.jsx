@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Play, Lock, Mail, User, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
+import { Play, Lock, Mail, User, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { EmailVerificationScreen } from '../components/auth/EmailVerificationScreen';
 
 export const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -12,8 +13,9 @@ export const RegisterPage = () => {
     confirmPassword: '',
   });
   const [loading, setLoading] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(null);
 
-  const { register } = useAuth();
+  const { register, resendVerification } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -42,12 +44,20 @@ export const RegisterPage = () => {
 
     setLoading(true);
     try {
-      await register({ name, email, password, confirmPassword });
-      toast.success('Account created successfully! Welcome to CinePulse.');
-      navigate('/');
+      const result = await register({ name, email, password, confirmPassword });
+      toast.success('Account created! Verification email sent.');
+      setVerificationPending({
+        email: email.trim(),
+        idToken: result?.idToken,
+        password,
+      });
     } catch (err) {
       let msg = err.message || 'Registration failed';
-      if (err.code === 'auth/email-already-in-use' || msg.includes('email-already-in-use') || msg.includes('EMAIL_EXISTS')) {
+      if (
+        err.code === 'auth/email-already-in-use' ||
+        msg.includes('email-already-in-use') ||
+        msg.includes('EMAIL_EXISTS')
+      ) {
         msg = 'An account with this email already exists.';
       } else if (err.code === 'auth/weak-password' || msg.includes('weak-password')) {
         msg = 'Password must be at least 6 characters.';
@@ -59,6 +69,18 @@ export const RegisterPage = () => {
       setLoading(false);
     }
   };
+
+  // If registration succeeded: Show the verification screen immediately (No auto-login!)
+  if (verificationPending) {
+    return (
+      <EmailVerificationScreen
+        email={verificationPending.email}
+        onGoToLogin={() => navigate('/login')}
+        onResendEmail={() => resendVerification(verificationPending)}
+        isFromLogin={false}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen relative flex items-center justify-center p-4 bg-[#08090d] overflow-hidden">
