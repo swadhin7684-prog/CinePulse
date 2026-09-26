@@ -46,6 +46,29 @@ export const formatDocs = (snapshot) => {
   return docs.map(formatDoc).filter(Boolean);
 };
 
+// Log environment variable diagnostics
+export const checkFirebaseEnv = () => {
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+  console.log('\n================== FIREBASE ENVIRONMENT STATUS ==================');
+  console.log(`• FIREBASE_PROJECT_ID:   ${projectId ? `✓ Configured (${projectId})` : '✗ MISSING'}`);
+  console.log(`• FIREBASE_CLIENT_EMAIL: ${clientEmail ? `✓ Configured (${clientEmail})` : '✗ NOT SET'}`);
+  console.log(`• FIREBASE_PRIVATE_KEY:  ${privateKey ? `✓ Configured (${privateKey.length} chars)` : '✗ NOT SET'}`);
+  console.log(`• SERVICE_ACCOUNT_JSON:  ${serviceAccount ? '✓ Configured' : '✗ NOT SET'}`);
+  console.log(`• Target Firebase App:   cinepulse-f67d7`);
+  console.log('=================================================================\n');
+
+  return {
+    projectId: !!projectId,
+    clientEmail: !!clientEmail,
+    privateKey: !!privateKey,
+    hasCredentials: !!((projectId && clientEmail && privateKey) || serviceAccount),
+  };
+};
+
 // Parse credentials from environment variables
 function getFirebaseCredentials() {
   // Option 1: Full JSON string in FIREBASE_SERVICE_ACCOUNT
@@ -60,7 +83,7 @@ function getFirebaseCredentials() {
     }
   }
 
-  // Option 2: Individual environment variables (Vercel-recommended)
+  // Option 2: Individual environment variables (Vercel & production recommended)
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   let privateKey = process.env.FIREBASE_PRIVATE_KEY;
@@ -111,7 +134,7 @@ function getFirebaseCredentials() {
   return null;
 }
 
-// In-Memory Firestore Emulator for seamless local development without credentials
+// In-Memory Firestore Emulator for local fallback if credentials not yet configured
 class MemoryQuerySnapshot {
   constructor(docs) {
     this.docs = docs;
@@ -371,27 +394,82 @@ if (!global.__cinepulse_memory_firestore) {
   global.__cinepulse_memory_firestore = new MemoryFirestore();
 }
 
+// Initialize Admin App (Singleton)
+let adminAppInstance = null;
+export const getAdminApp = () => {
+  if (adminAppInstance) return adminAppInstance;
+
+  const credentials = getFirebaseCredentials();
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'cinepulse-f67d7';
+
+  if (getApps().length > 0) {
+    adminAppInstance = getApps()[0];
+    return adminAppInstance;
+  }
+
+  if (credentials) {
+    try {
+      adminAppInstance = initializeApp({ credential: credentials, projectId });
+      return adminAppInstance;
+    } catch (err) {
+      console.error('[Firebase Admin] Error initializing with credentials:', err.message);
+    }
+  }
+
+  // Initialize with projectId (enables token verification without private key)
+  try {
+    adminAppInstance = initializeApp({ projectId });
+    return adminAppInstance;
+  } catch (err) {
+    console.error('[Firebase Admin] Error initializing with projectId:', err.message);
+    return null;
+  }
+};
+
+// Export Firebase Admin Auth instance (always available for ID token verification)
+export const getAdminAuth = () => {
+  const app = getAdminApp();
+  if (app) {
+    try {
+      return getAuth(app);
+    } catch (e) {
+      console.warn('[Firebase Auth] Failed to get Auth instance:', e.message);
+      return null;
+    }
+  }
+  return null;
+};
+
 // Initialize Firestore DB (Singleton)
 export const getDb = () => {
   if (db) return db;
 
+  const envStatus = checkFirebaseEnv();
   const credentials = getFirebaseCredentials();
 
   if (credentials) {
     try {
-      const app = getApps().length === 0 ? initializeApp({ credential: credentials }) : getApps()[0];
+      const app = getAdminApp();
       db = getFirestore(app);
       isLive = true;
-      console.log('[Firebase] Connected to live Google Cloud Firestore successfully.');
+      console.log('[Firebase] Successfully connected to Google Cloud Firestore (live production mode).');
       return db;
     } catch (err) {
-      console.error('[Firebase] Failed to initialize live Firebase Admin SDK:', err.message);
-      console.warn('[Firebase] Falling back to zero-config in-memory Firestore.');
+      console.error('[Firebase] Failed to initialize live Cloud Firestore:', err.message);
+      // In production, NEVER silently fall back! Fail loudly as requested!
+      if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+        throw new Error(`[Firebase] FATAL: Production Cloud Firestore initialization failed: ${err.message}`);
+      }
     }
   } else {
-    console.log('[Firebase] No Firebase credentials detected in environment.');
-    console.log('[Firebase] Initialized zero-config in-memory Firestore engine for development.');
-    console.log('[Firebase] To connect to production Firestore, configure FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.');
+    // If running in production or on Vercel without credentials, fail loudly!
+    if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+      throw new Error(
+        `[Firebase] FATAL: Missing production Firebase credentials! Please set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in environment variables.`
+      );
+    }
+    console.warn('[Firebase] Notice: Service account private key not detected in local environment.');
+    console.warn('[Firebase] To connect server to cloud Firestore, add FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY to backend/.env.');
   }
 
   db = global.__cinepulse_memory_firestore;
@@ -403,29 +481,15 @@ export const getDb = () => {
 db = getDb();
 export { db, isLive as isLiveFirestore };
 
-// Export Firebase Admin Auth instance (for managing users in Firebase Authentication console)
-export const getAdminAuth = () => {
-  if (isLive) {
-    try {
-      return getAuth();
-    } catch (e) {
-      console.warn('[Firebase Auth] Failed to get Auth instance:', e.message);
-      return null;
-    }
-  }
-  return null;
-};
-
 // Health check utility function
 export const checkFirestoreHealth = async () => {
   try {
     const firestore = getDb();
-    // Test collection query with limit 1
     const testSnap = await firestore.collection('genres').limit(1).get();
     return {
       status: 'healthy',
       provider: 'Firebase Firestore',
-      mode: isLive ? 'live-cloud' : 'in-memory-dev',
+      mode: isLive ? 'live-cloud' : 'local-emulator',
       accessible: true,
       timestamp: new Date().toISOString(),
     };
@@ -433,7 +497,7 @@ export const checkFirestoreHealth = async () => {
     return {
       status: 'degraded',
       provider: 'Firebase Firestore',
-      mode: isLive ? 'live-cloud' : 'in-memory-dev',
+      mode: isLive ? 'live-cloud' : 'local-emulator',
       accessible: false,
       error: err.message,
       timestamp: new Date().toISOString(),

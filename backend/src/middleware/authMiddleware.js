@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import { getAdminAuth } from '../config/firebase.js';
 import * as dbService from '../services/firestoreDb.js';
 import { sendError } from '../utils/response.js';
 
@@ -14,25 +14,48 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'cinepulse_super_secret_jwt_key_2026_production_grade'
-    );
-
-    const user = await dbService.findById('users', decoded.id);
-
-    if (!user) {
-      return sendError(res, 'The user belonging to this token no longer exists.', 401);
+    const adminAuth = getAdminAuth();
+    if (!adminAuth) {
+      return sendError(res, 'Authentication service currently unavailable.', 500);
     }
 
-    const { password: _, ...userSafe } = user;
-    req.user = userSafe;
+    const decoded = await adminAuth.verifyIdToken(token);
+    const uid = decoded.uid;
+
+    let user = await dbService.findById('users', uid);
+
+    if (!user) {
+      // Auto-provision user in Firestore if authenticated in Firebase Auth
+      const role = (decoded.email || '').toLowerCase() === 'admin@cinepulse.io' ? 'admin' : 'user';
+      const now = new Date();
+      user = await dbService.setDoc(
+        'users',
+        uid,
+        {
+          uid,
+          _id: uid,
+          name: decoded.name || (decoded.email || 'User').split('@')[0],
+          email: (decoded.email || '').toLowerCase(),
+          role,
+          profiles: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    }
+
+    req.user = {
+      ...user,
+      _id: uid,
+      uid,
+    };
 
     // Optional active profile header
     const profileId = req.headers['x-profile-id'] || req.query.profileId;
     if (profileId) {
       const profile = await dbService.findById('profiles', profileId);
-      if (profile && profile.userId.toString() === user._id.toString()) {
+      if (profile && (profile.userId?.toString() === uid || profile.userId?.toString() === user._id?.toString())) {
         req.profile = profile;
         req.profileId = profile._id;
       }
@@ -40,6 +63,6 @@ export const protect = async (req, res, next) => {
 
     next();
   } catch (error) {
-    return sendError(res, 'Not authorized. Invalid or expired token.', 401);
+    return sendError(res, 'Not authorized. Invalid or expired Firebase ID token.', 401);
   }
 };

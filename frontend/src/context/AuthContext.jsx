@@ -1,4 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+} from 'firebase/auth';
+import { auth } from '../firebase';
 import api from '../services/api';
 
 const AuthContext = createContext(null);
@@ -18,45 +26,109 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [showProfileSelector, setShowProfileSelector] = useState(false);
 
-  // Load user data if token exists
-  const loadUser = useCallback(async () => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    try {
-      const response = await api.get('/auth/me');
-      const userData = response.data.user;
-      setUser(userData);
-      const userProfiles = userData.profiles || [];
-      setProfiles(userProfiles);
+  // Synchronize authentication state on page load and token changes
+  useEffect(() => {
+    let isMounted = true;
 
-      // Verify or assign active profile
-      if (userProfiles.length > 0) {
-        if (!activeProfile || !userProfiles.some((p) => p._id === activeProfile._id)) {
-          const defaultProf = userProfiles[0];
-          setActiveProfile(defaultProf);
-          localStorage.setItem('cinepulse_active_profile', JSON.stringify(defaultProf));
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          if (!isMounted) return;
+
+          localStorage.setItem('cinepulse_token', idToken);
+          setToken(idToken);
+
+          const response = await api.get('/auth/me', {
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+
+          if (!isMounted) return;
+          const userData = response.data?.user || response.data?.data?.user;
+          if (userData) {
+            setUser(userData);
+            const userProfiles = userData.profiles || [];
+            setProfiles(userProfiles);
+
+            if (userProfiles.length > 0) {
+              const currentActive = localStorage.getItem('cinepulse_active_profile');
+              let parsedActive = null;
+              try {
+                parsedActive = currentActive ? JSON.parse(currentActive) : null;
+              } catch (e) {}
+
+              if (!parsedActive || !userProfiles.some((p) => p._id === parsedActive._id)) {
+                const defaultProf = userProfiles[0];
+                setActiveProfile(defaultProf);
+                localStorage.setItem('cinepulse_active_profile', JSON.stringify(defaultProf));
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[AuthContext] Session refresh note:', err.message);
+        } finally {
+          if (isMounted) setLoading(false);
+        }
+      } else {
+        // Fallback for direct token in localStorage if Firebase Auth hasn't restored yet
+        const localToken = localStorage.getItem('cinepulse_token');
+        if (localToken) {
+          try {
+            const response = await api.get('/auth/me');
+            if (!isMounted) return;
+            const userData = response.data?.user || response.data?.data?.user;
+            if (userData) {
+              setUser(userData);
+              setProfiles(userData.profiles || []);
+            }
+          } catch (e) {
+            localStorage.removeItem('cinepulse_token');
+            localStorage.removeItem('cinepulse_active_profile');
+            if (isMounted) {
+              setToken(null);
+              setUser(null);
+            }
+          } finally {
+            if (isMounted) setLoading(false);
+          }
+        } else {
+          if (isMounted) {
+            setUser(null);
+            setToken(null);
+            setLoading(false);
+          }
         }
       }
-    } catch (err) {
-      console.warn('Failed to load user with current token:', err.message);
-      logout();
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+    });
 
-  useEffect(() => {
-    loadUser();
-  }, [loadUser]);
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   const login = async ({ email, password }) => {
-    const response = await api.post('/auth/login', { email, password });
-    const { token: newToken, user: userData, activeProfile: initialProfile } = response.data;
+    // 1. Authenticate directly with Firebase Authentication
+    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    const firebaseUser = userCredential.user;
+    const idToken = await firebaseUser.getIdToken();
 
-    localStorage.setItem('cinepulse_token', newToken);
-    setToken(newToken);
+    // 2. Persist Firebase ID token
+    localStorage.setItem('cinepulse_token', idToken);
+    setToken(idToken);
+
+    // 3. Sync with backend /auth/login with verified Firebase ID token
+    const response = await api.post(
+      '/auth/login',
+      { idToken },
+      {
+        headers: { Authorization: `Bearer ${idToken}` },
+      }
+    );
+
+    const payload = response.data || response;
+    const { user: userData, activeProfile: initialProfile } = payload;
+
     setUser(userData);
     setProfiles(userData.profiles || []);
 
@@ -66,15 +138,47 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('cinepulse_active_profile', JSON.stringify(selected));
     }
 
-    return response.data;
+    return payload;
   };
 
   const register = async ({ name, email, password, confirmPassword }) => {
-    const response = await api.post('/auth/register', { name, email, password, confirmPassword });
-    const { token: newToken, user: userData, activeProfile: initialProfile } = response.data;
+    if (password !== confirmPassword) {
+      throw new Error('Passwords do not match');
+    }
 
-    localStorage.setItem('cinepulse_token', newToken);
-    setToken(newToken);
+    // 1. Create user in Firebase Authentication
+    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    const firebaseUser = userCredential.user;
+
+    // 2. Set Firebase Auth display name
+    try {
+      await updateProfile(firebaseUser, { displayName: name.trim() });
+    } catch (e) {
+      console.warn('Could not set displayName on Firebase Auth user:', e.message);
+    }
+
+    // 3. Obtain Firebase ID token
+    const idToken = await firebaseUser.getIdToken();
+    localStorage.setItem('cinepulse_token', idToken);
+    setToken(idToken);
+
+    // 4. Create/update Firestore users/{firebaseUid} via backend
+    const response = await api.post(
+      '/auth/register',
+      {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        uid: firebaseUser.uid,
+        idToken,
+      },
+      {
+        headers: { Authorization: `Bearer ${idToken}` },
+      }
+    );
+
+    const payload = response.data || response;
+    const { user: userData, activeProfile: initialProfile } = payload;
+
     setUser(userData);
     setProfiles(userData.profiles || []);
 
@@ -84,18 +188,25 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('cinepulse_active_profile', JSON.stringify(selected));
     }
 
-    return response.data;
+    return payload;
   };
 
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem('cinepulse_token');
     localStorage.removeItem('cinepulse_active_profile');
     setToken(null);
     setUser(null);
     setActiveProfile(null);
     setProfiles([]);
+
     try {
-      api.post('/auth/logout').catch(() => {});
+      await signOut(auth);
+    } catch (e) {
+      console.warn('[Firebase Auth] SignOut error:', e.message);
+    }
+
+    try {
+      await api.post('/auth/logout');
     } catch (e) {}
   };
 
@@ -108,7 +219,7 @@ export const AuthProvider = ({ children }) => {
   const refreshProfiles = async () => {
     try {
       const response = await api.get('/profiles');
-      const loaded = response.data.profiles || [];
+      const loaded = response.data?.profiles || response.data || [];
       setProfiles(loaded);
       if (activeProfile) {
         const updated = loaded.find((p) => p._id === activeProfile._id);

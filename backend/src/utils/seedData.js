@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import bcrypt from 'bcryptjs';
 import * as dbService from '../services/firestoreDb.js';
 
 dotenv.config();
@@ -274,54 +273,60 @@ export const seedDatabase = async () => {
     }
 
     // 4. Seed Admin & Standard Users
-    console.log('[Seed] Seeding Users & Multi-Profiles...');
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash('Password123', salt);
+    console.log('[Seed] Seeding Users & Multi-Profiles in Firestore (users/{firebaseUid})...');
+    const adminUid = 'lMqNiF9trgSdDlcDDYg5rpTBcgj2';
+    const demoUid = 'r3kdsUfVAadzY2nlFn6HuUcyEqi1';
 
-    // Admin user
-    let adminUser = await dbService.findOne('users', { email: 'admin@cinepulse.io' });
+    // Admin user (UID: lMqNiF9trgSdDlcDDYg5rpTBcgj2)
+    let adminUser = await dbService.findById('users', adminUid);
     if (!adminUser) {
-      adminUser = await dbService.createDoc('users', {
+      adminUser = await dbService.setDoc('users', adminUid, {
+        uid: adminUid,
+        _id: adminUid,
         name: 'Admin Supervisor',
         email: 'admin@cinepulse.io',
-        password: passwordHash,
         role: 'admin',
         profiles: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
       const adminProfile = await dbService.createDoc('profiles', {
-        userId: adminUser._id.toString(),
+        userId: adminUid,
         name: 'Admin HQ',
         avatar: 'avatar-1',
         maturityRating: 'ALL',
         isKids: false,
       });
 
-      await dbService.updateDoc('users', adminUser._id, {
+      await dbService.updateDoc('users', adminUid, {
         profiles: [adminProfile._id],
       });
 
       await dbService.createDoc('subscriptions', {
-        userId: adminUser._id.toString(),
+        userId: adminUid,
         plan: 'premium',
         status: 'active',
         maxProfiles: 5,
       });
     }
 
-    // Standard demo user with multiple profiles
-    let demoUser = await dbService.findOne('users', { email: 'user@cinepulse.io' });
+    // Standard demo user with multiple profiles (UID: r3kdsUfVAadzY2nlFn6HuUcyEqi1)
+    let demoUser = await dbService.findById('users', demoUid);
     if (!demoUser) {
-      demoUser = await dbService.createDoc('users', {
+      demoUser = await dbService.setDoc('users', demoUid, {
+        uid: demoUid,
+        _id: demoUid,
         name: 'Alex Mercer',
         email: 'user@cinepulse.io',
-        password: passwordHash,
         role: 'user',
         profiles: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
       const profileMain = await dbService.createDoc('profiles', {
-        userId: demoUser._id.toString(),
+        userId: demoUid,
         name: 'Alex',
         avatar: 'avatar-2',
         maturityRating: 'ALL',
@@ -329,7 +334,7 @@ export const seedDatabase = async () => {
       });
 
       const profileCinema = await dbService.createDoc('profiles', {
-        userId: demoUser._id.toString(),
+        userId: demoUid,
         name: 'Sci-Fi Vault',
         avatar: 'avatar-3',
         maturityRating: 'ALL',
@@ -337,19 +342,19 @@ export const seedDatabase = async () => {
       });
 
       const profileKids = await dbService.createDoc('profiles', {
-        userId: demoUser._id.toString(),
+        userId: demoUid,
         name: 'Kids Corner',
         avatar: 'avatar-4',
         maturityRating: 'PG',
         isKids: true,
       });
 
-      await dbService.updateDoc('users', demoUser._id, {
+      await dbService.updateDoc('users', demoUid, {
         profiles: [profileMain._id, profileCinema._id, profileKids._id],
       });
 
       await dbService.createDoc('subscriptions', {
-        userId: demoUser._id.toString(),
+        userId: demoUid,
         plan: 'premium',
         status: 'active',
         maxProfiles: 5,

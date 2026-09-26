@@ -3,21 +3,33 @@ import { sendSuccess, sendError } from '../utils/response.js';
 
 export const register = async (req, res, next) => {
   try {
-    const { name, email, password, confirmPassword } = req.body;
+    const bearerToken = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.split(' ')[1]
+      : null;
+    const idToken = req.body.idToken || bearerToken;
+    const { name, email, password, confirmPassword, uid } = req.body;
 
-    if (!name || !email || !password) {
-      return sendError(res, 'Please provide name, email, and password.', 400);
+    // If no Firebase ID token, validate credentials for direct registration
+    if (!idToken) {
+      if (!name || !email || !password) {
+        return sendError(res, 'Please provide name, email, and password.', 400);
+      }
+      if (password.length < 6) {
+        return sendError(res, 'Password must be at least 6 characters.', 400);
+      }
+      if (confirmPassword && password !== confirmPassword) {
+        return sendError(res, 'Passwords do not match.', 400);
+      }
     }
 
-    if (password.length < 6) {
-      return sendError(res, 'Password must be at least 6 characters.', 400);
-    }
+    const result = await authService.registerUser({
+      name,
+      email,
+      password,
+      uid,
+      idToken,
+    });
 
-    if (confirmPassword && password !== confirmPassword) {
-      return sendError(res, 'Passwords do not match.', 400);
-    }
-
-    const result = await authService.registerUser({ name, email, password });
     return sendSuccess(res, result, 201);
   } catch (error) {
     next(error);
@@ -26,13 +38,17 @@ export const register = async (req, res, next) => {
 
 export const login = async (req, res, next) => {
   try {
+    const bearerToken = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.split(' ')[1]
+      : null;
+    const idToken = req.body.idToken || bearerToken;
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return sendError(res, 'Please provide email and password.', 400);
+    if (!idToken && (!email || !password)) {
+      return sendError(res, 'Please provide email and password, or an authorized token.', 400);
     }
 
-    const result = await authService.loginUser({ email, password });
+    const result = await authService.loginUser({ email, password, idToken });
     return sendSuccess(res, result, 200);
   } catch (error) {
     next(error);
@@ -41,7 +57,8 @@ export const login = async (req, res, next) => {
 
 export const getMe = async (req, res, next) => {
   try {
-    const user = await authService.getCurrentUser(req.user._id);
+    const userId = req.user.uid || req.user._id;
+    const user = await authService.getCurrentUser(userId);
     return sendSuccess(res, { user }, 200);
   } catch (error) {
     next(error);

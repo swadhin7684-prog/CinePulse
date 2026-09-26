@@ -46,7 +46,15 @@ export const RegisterPage = () => {
       toast.success('Account created successfully! Welcome to CinePulse.');
       navigate('/');
     } catch (err) {
-      toast.error(err.message || 'Registration failed');
+      let msg = err.message || 'Registration failed';
+      if (err.code === 'auth/email-already-in-use' || msg.includes('email-already-in-use') || msg.includes('EMAIL_EXISTS')) {
+        msg = 'An account with this email already exists.';
+      } else if (err.code === 'auth/weak-password' || msg.includes('weak-password')) {
+        msg = 'Password must be at least 6 characters.';
+      } else if (err.code === 'auth/invalid-email' || msg.includes('invalid-email')) {
+        msg = 'Please enter a valid email address.';
+      }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

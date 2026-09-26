@@ -29,7 +29,21 @@ export const LoginPage = () => {
       toast.success('Welcome back to CinePulse!');
       navigate(from, { replace: true });
     } catch (err) {
-      toast.error(err.message || 'Login failed. Please check your credentials.');
+      let msg = err.message || 'Login failed. Please check your credentials.';
+      if (
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/user-not-found' ||
+        msg.includes('invalid-credential') ||
+        msg.includes('INVALID_LOGIN_CREDENTIALS') ||
+        msg.includes('wrong-password') ||
+        msg.includes('user-not-found')
+      ) {
+        msg = 'Invalid email or password.';
+      } else if (err.code === 'auth/too-many-requests') {
+        msg = 'Too many attempts. Please try again in a few minutes.';
+      }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
