@@ -1,18 +1,16 @@
 import app from './app.js';
-import { connectDB } from './config/db.js';
-import { Movie } from './models/Movie.js';
+import * as dbService from './services/firestoreDb.js';
 import { seedDatabase } from './utils/seedData.js';
+import { isLiveFirestore } from './config/firebase.js';
 
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
-    await connectDB();
-
     // Check if initial seed is needed
-    const movieCount = await Movie.countDocuments();
+    const movieCount = await dbService.count('movies');
     if (movieCount === 0) {
-      console.log('[Server] Database is empty. Running initial seed...');
+      console.log('[Server] Firestore database is empty. Running initial seed...');
       await seedDatabase();
     }
 
@@ -20,6 +18,7 @@ const startServer = async () => {
       console.log(`===============================================`);
       console.log(` CinePulse API Server running on port: ${PORT}`);
       console.log(` Health check: http://localhost:${PORT}/api/health`);
+      console.log(` Database:     Firebase Firestore (${isLiveFirestore ? 'Google Cloud' : 'Dev Mode'})`);
       console.log(` Environment:  ${process.env.NODE_ENV || 'development'}`);
       console.log(`===============================================`);
     });

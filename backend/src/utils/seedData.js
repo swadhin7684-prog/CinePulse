@@ -1,13 +1,6 @@
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { User } from '../models/User.js';
-import { Profile } from '../models/Profile.js';
-import { Genre } from '../models/Genre.js';
-import { Movie } from '../models/Movie.js';
-import { TVShow } from '../models/TVShow.js';
-import { Episode } from '../models/Episode.js';
-import { Subscription } from '../models/Subscription.js';
-import { connectDB } from '../config/db.js';
+import bcrypt from 'bcryptjs';
+import * as dbService from '../services/firestoreDb.js';
 
 dotenv.config();
 
@@ -20,7 +13,6 @@ const genresData = [
   { name: 'Thriller', slug: 'thriller', icon: 'Eye', description: 'Suspenseful investigations, psychological twists, and high stakes' },
 ];
 
-// Curated high quality legal public domain / Creative Commons cinematic demo streams
 const moviesData = [
   {
     title: 'Tears of Steel: Neo Amsterdam',
@@ -173,7 +165,7 @@ const moviesData = [
     trending: true,
     popularityScore: 91,
     viewsCount: 13800,
-  }
+  },
 ];
 
 const showsData = [
@@ -210,141 +202,161 @@ const showsData = [
     featured: false,
     trending: true,
     popularityScore: 88,
-  }
+  },
 ];
 
 export const seedDatabase = async () => {
   try {
-    if (mongoose.connection.readyState === 0) {
-      await connectDB();
-    }
-    console.log('[Seed] Clearing existing collections...');
-
-    await Promise.all([
-      User.deleteMany({}),
-      Profile.deleteMany({}),
-      Genre.deleteMany({}),
-      Movie.deleteMany({}),
-      TVShow.deleteMany({}),
-      Episode.deleteMany({}),
-      Subscription.deleteMany({}),
-    ]);
+    console.log('[Seed] Seeding CinePulse Firestore collections...');
 
     // 1. Seed Genres
     console.log('[Seed] Seeding Genres...');
-    await Genre.insertMany(genresData);
+    for (const genre of genresData) {
+      const existing = await dbService.findOne('genres', { slug: genre.slug });
+      if (!existing) {
+        await dbService.createDoc('genres', genre);
+      }
+    }
 
     // 2. Seed Movies
     console.log('[Seed] Seeding Movies...');
-    await Movie.insertMany(moviesData);
+    for (const movie of moviesData) {
+      const existing = await dbService.findOne('movies', { title: movie.title });
+      if (!existing) {
+        await dbService.createDoc('movies', movie);
+      }
+    }
 
     // 3. Seed TV Shows & Episodes
     console.log('[Seed] Seeding TV Shows & Episodes...');
     for (const showData of showsData) {
-      const show = await TVShow.create(showData);
-      // Create 3 demo episodes for each show
-      await Episode.create([
-        {
-          showId: show._id,
-          seasonNumber: 1,
-          episodeNumber: 1,
-          title: 'Pilot: The Echo in the Wire',
-          description: 'A routine quantum cluster diagnostics check reveals an anomalous echo responding from seven years in the future.',
-          thumbnail: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=600&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-          duration: 48,
-        },
-        {
-          showId: show._id,
-          seasonNumber: 1,
-          episodeNumber: 2,
-          title: 'Temporal Parallax',
-          description: 'As timelines begin to diverge, unexpected memories surface among the research team members.',
-          thumbnail: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=600&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-          duration: 52,
-        },
-        {
-          showId: show._id,
-          seasonNumber: 1,
-          episodeNumber: 3,
-          title: 'Zero Latency',
-          description: 'A high-stakes covert extraction in downtown Zurich tests whether future warnings can truly prevent catastrophes.',
-          thumbnail: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-          duration: 46,
-        },
-      ]);
+      let show = await dbService.findOne('tvShows', { title: showData.title });
+      if (!show) {
+        show = await dbService.createDoc('tvShows', showData);
+      }
+
+      // Check existing episodes for this show
+      const existingEpisodes = await dbService.findAll('episodes', { showId: show._id.toString() });
+      if (existingEpisodes.length === 0) {
+        await Promise.all([
+          dbService.createDoc('episodes', {
+            showId: show._id.toString(),
+            seasonNumber: 1,
+            episodeNumber: 1,
+            title: 'Pilot: The Echo in the Wire',
+            description: 'A routine quantum cluster diagnostics check reveals an anomalous echo responding from seven years in the future.',
+            thumbnail: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=600&q=80',
+            videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+            duration: 48,
+          }),
+          dbService.createDoc('episodes', {
+            showId: show._id.toString(),
+            seasonNumber: 1,
+            episodeNumber: 2,
+            title: 'Temporal Parallax',
+            description: 'As timelines begin to diverge, unexpected memories surface among the research team members.',
+            thumbnail: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=600&q=80',
+            videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
+            duration: 52,
+          }),
+          dbService.createDoc('episodes', {
+            showId: show._id.toString(),
+            seasonNumber: 1,
+            episodeNumber: 3,
+            title: 'Zero Latency',
+            description: 'A high-stakes covert extraction in downtown Zurich tests whether future warnings can truly prevent catastrophes.',
+            thumbnail: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80',
+            videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+            duration: 46,
+          }),
+        ]);
+      }
     }
 
     // 4. Seed Admin & Standard Users
     console.log('[Seed] Seeding Users & Multi-Profiles...');
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash('Password123', salt);
+
     // Admin user
-    const adminUser = await User.create({
-      name: 'Admin Supervisor',
-      email: 'admin@cinepulse.io',
-      password: 'Password123',
-      role: 'admin',
-    });
+    let adminUser = await dbService.findOne('users', { email: 'admin@cinepulse.io' });
+    if (!adminUser) {
+      adminUser = await dbService.createDoc('users', {
+        name: 'Admin Supervisor',
+        email: 'admin@cinepulse.io',
+        password: passwordHash,
+        role: 'admin',
+        profiles: [],
+      });
 
-    const adminProfile = await Profile.create({
-      userId: adminUser._id,
-      name: 'Admin HQ',
-      avatar: 'avatar-1',
-      maturityRating: 'ALL',
-      isKids: false,
-    });
-    adminUser.profiles.push(adminProfile._id);
-    await adminUser.save();
+      const adminProfile = await dbService.createDoc('profiles', {
+        userId: adminUser._id.toString(),
+        name: 'Admin HQ',
+        avatar: 'avatar-1',
+        maturityRating: 'ALL',
+        isKids: false,
+      });
 
-    await Subscription.create({
-      userId: adminUser._id,
-      plan: 'premium',
-      status: 'active',
-    });
+      await dbService.updateDoc('users', adminUser._id, {
+        profiles: [adminProfile._id],
+      });
+
+      await dbService.createDoc('subscriptions', {
+        userId: adminUser._id.toString(),
+        plan: 'premium',
+        status: 'active',
+        maxProfiles: 5,
+      });
+    }
 
     // Standard demo user with multiple profiles
-    const demoUser = await User.create({
-      name: 'Alex Mercer',
-      email: 'user@cinepulse.io',
-      password: 'Password123',
-      role: 'user',
-    });
+    let demoUser = await dbService.findOne('users', { email: 'user@cinepulse.io' });
+    if (!demoUser) {
+      demoUser = await dbService.createDoc('users', {
+        name: 'Alex Mercer',
+        email: 'user@cinepulse.io',
+        password: passwordHash,
+        role: 'user',
+        profiles: [],
+      });
 
-    const profileMain = await Profile.create({
-      userId: demoUser._id,
-      name: 'Alex',
-      avatar: 'avatar-2',
-      maturityRating: 'ALL',
-      isKids: false,
-    });
+      const profileMain = await dbService.createDoc('profiles', {
+        userId: demoUser._id.toString(),
+        name: 'Alex',
+        avatar: 'avatar-2',
+        maturityRating: 'ALL',
+        isKids: false,
+      });
 
-    const profileCinema = await Profile.create({
-      userId: demoUser._id,
-      name: 'Sci-Fi Vault',
-      avatar: 'avatar-3',
-      maturityRating: 'ALL',
-      isKids: false,
-    });
+      const profileCinema = await dbService.createDoc('profiles', {
+        userId: demoUser._id.toString(),
+        name: 'Sci-Fi Vault',
+        avatar: 'avatar-3',
+        maturityRating: 'ALL',
+        isKids: false,
+      });
 
-    const profileKids = await Profile.create({
-      userId: demoUser._id,
-      name: 'Kids Corner',
-      avatar: 'avatar-4',
-      maturityRating: 'PG',
-      isKids: true,
-    });
+      const profileKids = await dbService.createDoc('profiles', {
+        userId: demoUser._id.toString(),
+        name: 'Kids Corner',
+        avatar: 'avatar-4',
+        maturityRating: 'PG',
+        isKids: true,
+      });
 
-    demoUser.profiles.push(profileMain._id, profileCinema._id, profileKids._id);
-    await demoUser.save();
+      await dbService.updateDoc('users', demoUser._id, {
+        profiles: [profileMain._id, profileCinema._id, profileKids._id],
+      });
 
-    await Subscription.create({
-      userId: demoUser._id,
-      plan: 'premium',
-      status: 'active',
-    });
+      await dbService.createDoc('subscriptions', {
+        userId: demoUser._id.toString(),
+        plan: 'premium',
+        status: 'active',
+        maxProfiles: 5,
+      });
+    }
 
-    console.log('[Seed] Successfully seeded CinePulse database!');
+    console.log('[Seed] Successfully seeded CinePulse Firestore collections!');
     console.log('--- CinePulse Credentials ---');
     console.log('Admin User: admin@cinepulse.io / Password123');
     console.log('Demo User:  user@cinepulse.io  / Password123');
@@ -359,9 +371,12 @@ export const seedDatabase = async () => {
 
 // If run directly via node
 if (process.argv[1] && process.argv[1].endsWith('seedData.js')) {
-  seedDatabase().then(() => {
-    process.exit(0);
-  }).catch(() => {
-    process.exit(1);
-  });
+  seedDatabase()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
 }

@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
-import { connectDB } from './config/db.js';
+import { checkFirestoreHealth } from './config/firebase.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // Route imports
@@ -41,16 +41,6 @@ app.use(
   })
 );
 
-// Ensure DB is connected on incoming requests (essential for Vercel serverless)
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Request body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -73,14 +63,16 @@ const authLimiter = rateLimit({
 
 app.use('/api/auth', authLimiter);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// Health check endpoint with Firestore status
+app.get('/api/health', async (req, res) => {
+  const dbHealth = await checkFirestoreHealth();
   res.json({
     success: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'CinePulse Streaming API',
     environment: process.env.NODE_ENV || 'development',
+    database: dbHealth,
   });
 });
 

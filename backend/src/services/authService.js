@@ -1,46 +1,62 @@
 import jwt from 'jsonwebtoken';
-import { User } from '../models/User.js';
-import { Profile } from '../models/Profile.js';
-import { Subscription } from '../models/Subscription.js';
+import bcrypt from 'bcryptjs';
+import * as dbService from './firestoreDb.js';
 
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'cinepulse_super_secret_jwt_key_2026_production_grade', {
-    expiresIn: '30d',
-  });
+  return jwt.sign(
+    { id },
+    process.env.JWT_SECRET || 'cinepulse_super_secret_jwt_key_2026_production_grade',
+    { expiresIn: '30d' }
+  );
 };
 
 export const registerUser = async ({ name, email, password }) => {
-  const existingUser = await User.findOne({ email });
+  const normalizedEmail = email ? email.toLowerCase().trim() : '';
+
+  // Check if email already exists
+  const existingUser = await dbService.findOne('users', { email: normalizedEmail });
   if (existingUser) {
     const error = new Error('An account with this email already exists');
     error.statusCode = 400;
     throw error;
   }
 
-  // Create user
-  const user = await User.create({
-    name,
-    email,
-    password,
+  // Hash password
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
+
+  // 1. Create User
+  const user = await dbService.createDoc('users', {
+    name: name.trim(),
+    email: normalizedEmail,
+    password: hashedPassword,
+    role: 'user',
+    profiles: [],
   });
 
-  // Create default primary profile
-  const defaultProfile = await Profile.create({
+  // 2. Create Default Profile
+  const defaultProfile = await dbService.createDoc('profiles', {
     userId: user._id,
-    name: name.split(' ')[0] || 'Primary',
+    name: name.trim().split(' ')[0] || 'Primary',
     avatar: 'avatar-1',
+    language: 'en',
     maturityRating: 'ALL',
     isKids: false,
   });
 
-  user.profiles.push(defaultProfile._id);
-  await user.save();
+  // Update user with profile id
+  await dbService.updateDoc('users', user._id, {
+    profiles: [defaultProfile._id],
+  });
 
-  // Create default subscription
-  await Subscription.create({
+  // 3. Create Default Subscription
+  await dbService.createDoc('subscriptions', {
     userId: user._id,
     plan: 'premium',
     status: 'active',
+    startDate: new Date(),
+    endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    maxProfiles: 5,
   });
 
   const token = generateToken(user._id);
@@ -59,47 +75,68 @@ export const registerUser = async ({ name, email, password }) => {
 };
 
 export const loginUser = async ({ email, password }) => {
-  const user = await User.findOne({ email }).select('+password').populate('profiles');
+  const normalizedEmail = email ? email.toLowerCase().trim() : '';
+  const user = await dbService.findOne('users', { email: normalizedEmail });
 
-  if (!user || !(await user.matchPassword(password))) {
+  if (!user || !user.password) {
     const error = new Error('Invalid email or password');
     error.statusCode = 401;
     throw error;
   }
 
-  // Ensure user has at least one profile
-  if (!user.profiles || user.profiles.length === 0) {
-    const newProfile = await Profile.create({
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    const error = new Error('Invalid email or password');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  // Fetch user profiles
+  let profiles = await dbService.findAll('profiles', { userId: user._id }, ['createdAt']);
+
+  if (!profiles || profiles.length === 0) {
+    const newProfile = await dbService.createDoc('profiles', {
       userId: user._id,
       name: user.name.split(' ')[0] || 'User',
       avatar: 'avatar-1',
+      language: 'en',
+      maturityRating: 'ALL',
+      isKids: false,
     });
-    user.profiles.push(newProfile._id);
-    await user.save();
-    user.profiles = [newProfile];
+    await dbService.updateDoc('users', user._id, {
+      profiles: [newProfile._id],
+    });
+    profiles = [newProfile];
   }
 
   const token = generateToken(user._id);
 
+  // Strip password from returned user object
+  const { password: _, ...userSafe } = user;
+
   return {
     user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      profiles: user.profiles,
+      ...userSafe,
+      profiles,
     },
-    activeProfile: user.profiles[0],
+    activeProfile: profiles[0],
     token,
   };
 };
 
 export const getCurrentUser = async (userId) => {
-  const user = await User.findById(userId).populate('profiles');
+  const user = await dbService.findById('users', userId);
   if (!user) {
     const error = new Error('User not found');
     error.statusCode = 404;
     throw error;
   }
-  return user;
+
+  const profiles = await dbService.findAll('profiles', { userId: user._id }, ['createdAt']);
+  const { password: _, ...userSafe } = user;
+
+  return {
+    ...userSafe,
+    profiles,
+  };
 };

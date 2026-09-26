@@ -3,7 +3,7 @@
 A production-grade, full-stack video streaming web application designed with modern aesthetics, clean layered architecture, and scalable media streaming capabilities.
 
 ![Brand Accent](https://img.shields.io/badge/Accent-Electric%20Amber%20%23F59E0B-amber)
-![Stack](https://img.shields.io/badge/Stack-React%2018%20%7C%20Node%20%7C%20Express%20%7C%20MongoDB-blue)
+![Stack](https://img.shields.io/badge/Stack-React%2018%20%7C%20Node%20%7C%20Express%20%7C%20Firestore-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -60,14 +60,14 @@ A production-grade, full-stack video streaming web application designed with mod
 │
 ├── backend/
 │   ├── src/
-│   │   ├── config/             # db.js (Atlas + MongoMemoryServer local fallback)
+│   │   ├── config/             # firebase.js (Firebase Admin SDK Firestore singleton)
 │   │   ├── controllers/        # auth, profile, movie, search, list, history, rating, recommendation, admin
 │   │   ├── middleware/         # authMiddleware, adminMiddleware, validateMiddleware, errorHandler
-│   │   ├── models/             # User, Profile, Movie, TVShow, Episode, Genre, WatchHistory, MyList, Rating, Subscription
 │   │   ├── routes/             # REST endpoints
-│   │   ├── services/           # authService, movieService, historyService, listService, recommendationService
-│   │   ├── utils/              # response.js, seedData.js
-│   │   └── server.js           # Express app bootstrap
+│   │   ├── services/           # firestoreDb, authService, movieService, historyService, listService, recommendationService
+│   │   ├── utils/              # response.js, seedData.js, inspectDB.js
+│   │   ├── app.js              # Express app
+│   │   └── server.js           # Server bootstrap
 │   ├── package.json
 │   └── .env.example
 │
@@ -82,7 +82,7 @@ A production-grade, full-stack video streaming web application designed with mod
 ### 1. Requirements
 - **Node.js**: v18.0.0 or higher (v20+ LTS recommended)
 - **npm**: v9.0.0 or higher
-- **MongoDB**: MongoDB Atlas URI or local MongoDB. If no database is running locally, the backend automatically boots an embedded MongoDB engine out-of-the-box for zero-config local development!
+- **Database**: Firebase Firestore via Firebase Admin SDK. Supports production Google Cloud Firestore credentials as well as zero-config local development mode.
 
 ### 2. Installation
 
@@ -103,10 +103,14 @@ npm install
 Create `backend/.env`:
 ```env
 PORT=5000
-MONGODB_URI=mongodb://localhost:27017/cinepulse
 JWT_SECRET=cinepulse_super_secret_jwt_key_2026_production_grade
 CLIENT_URL=http://localhost:5173
 NODE_ENV=development
+
+# Optional for local (uses zero-config dev mode), required for production/Vercel:
+# FIREBASE_PROJECT_ID=your-firebase-project-id
+# FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your-firebase-project-id.iam.gserviceaccount.com
+# FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 ### 4. Running the Application

@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { User } from '../models/User.js';
-import { Profile } from '../models/Profile.js';
+import * as dbService from '../services/firestoreDb.js';
 import { sendError } from '../utils/response.js';
 
 export const protect = async (req, res, next) => {
@@ -15,20 +14,25 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'cinepulse_super_secret_jwt_key_2026_production_grade');
-    const user = await User.findById(decoded.id).select('-password');
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || 'cinepulse_super_secret_jwt_key_2026_production_grade'
+    );
+
+    const user = await dbService.findById('users', decoded.id);
 
     if (!user) {
       return sendError(res, 'The user belonging to this token no longer exists.', 401);
     }
 
-    req.user = user;
+    const { password: _, ...userSafe } = user;
+    req.user = userSafe;
 
     // Optional active profile header
     const profileId = req.headers['x-profile-id'] || req.query.profileId;
     if (profileId) {
-      const profile = await Profile.findOne({ _id: profileId, userId: user._id });
-      if (profile) {
+      const profile = await dbService.findById('profiles', profileId);
+      if (profile && profile.userId.toString() === user._id.toString()) {
         req.profile = profile;
         req.profileId = profile._id;
       }

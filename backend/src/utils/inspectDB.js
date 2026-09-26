@@ -1,9 +1,6 @@
 import http from 'http';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
-import { User } from '../models/User.js';
-import { Movie } from '../models/Movie.js';
-import { connectDB } from '../config/db.js';
+import * as dbService from '../services/firestoreDb.js';
 
 dotenv.config();
 
@@ -71,14 +68,15 @@ const postToAPI = (path, body) => {
 
 const inspect = async () => {
   console.log('\n================== CINEPULSE LIVE DATABASE INSPECTOR ==================');
-  
+
   try {
     // Attempt connecting to running backend API server
     const health = await fetchFromAPI('/api/health');
 
     if (health.success) {
       console.log(`[Status] Connected to live API server on port ${process.env.PORT || 5000}`);
-      
+      console.log(`[Database Health] ${JSON.stringify(health.database || {})}`);
+
       // Login as admin to get full analytics and users
       const adminLogin = await postToAPI('/api/auth/login', {
         email: 'admin@cinepulse.io',
@@ -133,11 +131,10 @@ const inspect = async () => {
       process.exit(0);
     }
   } catch (err) {
-    console.log('[Notice] API server not responding directly, checking Mongoose direct connection...');
-    await connectDB();
-    const movieCount = await Movie.countDocuments();
-    const userCount = await User.countDocuments();
-    console.log(`Direct DB Connection -> Movies: ${movieCount}, Users: ${userCount}`);
+    console.log('[Notice] API server not responding directly, checking Firestore collections...');
+    const movieCount = await dbService.count('movies');
+    const userCount = await dbService.count('users');
+    console.log(`Firestore Direct -> Movies: ${movieCount}, Users: ${userCount}`);
     process.exit(0);
   }
 };

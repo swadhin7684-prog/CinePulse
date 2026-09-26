@@ -53,7 +53,7 @@ export const Footer = () => {
           <div>
             <h4 className="text-white font-semibold text-sm mb-4 tracking-wide uppercase">Technology</h4>
             <p className="text-xs text-slate-500 leading-relaxed mb-3">
-              Powered by React 18, Tailwind CSS, Node.js, Express REST API, and MongoDB with custom hybrid recommendation engine.
+              Powered by React 18, Tailwind CSS, Node.js, Express REST API, and Firebase Firestore with custom hybrid recommendation engine.
             </p>
             <div className="p-3 rounded-lg bg-white/5 border border-white/5 text-xs text-slate-400">
               Legal Disclaimer: CinePulse streams open-source, Creative Commons media exclusively. Zero copyrighted Netflix assets.

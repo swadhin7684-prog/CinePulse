@@ -1,69 +1,79 @@
-import { Movie } from '../models/Movie.js';
-import { TVShow } from '../models/TVShow.js';
+import * as dbService from '../services/firestoreDb.js';
 import { sendSuccess } from '../utils/response.js';
 
 export const searchContent = async (req, res, next) => {
   try {
     const { q = '', genre, year, type = 'all', page = 1, limit = 24 } = req.query;
-    const trimmedQuery = q.trim();
+    const trimmedQuery = q.trim().toLowerCase();
+    const targetGenre = genre ? genre.trim().toLowerCase() : null;
+    const targetYear = year ? Number(year) : null;
+    const numLimit = Number(limit) || 24;
 
-    const movieConditions = [];
-    const showConditions = [];
+    const [allMovies, allShows] = await Promise.all([
+      dbService.findAll('movies'),
+      dbService.findAll('tvShows'),
+    ]);
 
-    if (trimmedQuery) {
-      const regex = new RegExp(trimmedQuery, 'i');
-      const textMatch = [
-        { title: { $regex: regex } },
-        { genres: { $regex: regex } },
-        { cast: { $regex: regex } },
-        { director: { $regex: regex } },
-        { description: { $regex: regex } },
-      ];
-      movieConditions.push({ $or: textMatch });
-      showConditions.push({ $or: textMatch });
-    }
+    // Match filter helper
+    const matchesFilter = (item) => {
+      // 1. Text Search across title, description, genres, cast, director
+      if (trimmedQuery) {
+        const titleMatch = (item.title || '').toLowerCase().includes(trimmedQuery);
+        const descMatch = (item.description || '').toLowerCase().includes(trimmedQuery);
+        const directorMatch = (item.director || '').toLowerCase().includes(trimmedQuery);
+        const castMatch =
+          Array.isArray(item.cast) &&
+          item.cast.some((c) => (c || '').toLowerCase().includes(trimmedQuery));
+        const genreMatch =
+          Array.isArray(item.genres) &&
+          item.genres.some((g) => (g || '').toLowerCase().includes(trimmedQuery));
 
-    if (genre) {
-      const genreRegex = new RegExp(`^${genre}$`, 'i');
-      movieConditions.push({ genres: { $regex: genreRegex } });
-      showConditions.push({ genres: { $regex: genreRegex } });
-    }
+        if (!titleMatch && !descMatch && !directorMatch && !castMatch && !genreMatch) {
+          return false;
+        }
+      }
 
-    if (year) {
-      const numYear = Number(year);
-      movieConditions.push({ releaseYear: numYear });
-      showConditions.push({ releaseYear: numYear });
-    }
+      // 2. Genre filter
+      if (targetGenre) {
+        const hasGenre =
+          Array.isArray(item.genres) &&
+          item.genres.some((g) => (g || '').toLowerCase() === targetGenre);
+        if (!hasGenre) return false;
+      }
 
-    const movieFilter = movieConditions.length > 0 ? { $and: movieConditions } : {};
-    const showFilter = showConditions.length > 0 ? { $and: showConditions } : {};
+      // 3. Year filter
+      if (targetYear) {
+        if (item.releaseYear !== targetYear) return false;
+      }
+
+      return true;
+    };
 
     let results = [];
 
     if (type === 'movie' || type === 'all') {
-      const movies = await Movie.find(movieFilter)
-        .sort({ popularityScore: -1 })
-        .limit(Number(limit));
-      results = results.concat(
-        movies.map((m) => ({ ...m.toObject(), contentType: 'movie' }))
-      );
+      const filteredMovies = allMovies
+        .filter(matchesFilter)
+        .map((m) => ({ ...m, contentType: 'movie' }));
+      results = results.concat(filteredMovies);
     }
 
     if (type === 'tv' || type === 'all') {
-      const shows = await TVShow.find(showFilter)
-        .sort({ popularityScore: -1 })
-        .limit(Number(limit));
-      results = results.concat(
-        shows.map((s) => ({ ...s.toObject(), contentType: 'tv' }))
-      );
+      const filteredShows = allShows
+        .filter(matchesFilter)
+        .map((s) => ({ ...s, contentType: 'tv' }));
+      results = results.concat(filteredShows);
     }
 
     // Sort combined results by popularityScore
     results.sort((a, b) => (b.popularityScore || 0) - (a.popularityScore || 0));
 
+    // Limit results
+    const limitedResults = results.slice(0, numLimit);
+
     return sendSuccess(res, {
-      items: results,
-      total: results.length,
+      items: limitedResults,
+      total: limitedResults.length,
       query: { q, genre, year, type },
     });
   } catch (error) {

@@ -1,7 +1,4 @@
-import { Movie } from '../models/Movie.js';
-import { WatchHistory } from '../models/WatchHistory.js';
-import { MyList } from '../models/MyList.js';
-import { Rating } from '../models/Rating.js';
+import * as dbService from './firestoreDb.js';
 
 /**
  * CinePulse Hybrid Recommendation Scoring Service
@@ -17,16 +14,21 @@ import { Rating } from '../models/Rating.js';
  */
 
 export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
+  const allMovies = await dbService.findAll('movies');
+
   // If no profile provided, return top popular & trending items
   if (!profileId) {
-    return await Movie.find().sort({ popularityScore: -1, rating: -1 }).limit(limit);
+    const sorted = [...allMovies].sort(
+      (a, b) => (b.popularityScore || 0) - (a.popularityScore || 0) || (b.rating || 0) - (a.rating || 0)
+    );
+    return sorted.slice(0, limit);
   }
 
   // 1. Gather signals from profile activity
   const [historyDocs, listDocs, ratingDocs] = await Promise.all([
-    WatchHistory.find({ profileId }).populate('contentId'),
-    MyList.find({ profileId }).populate('contentId'),
-    Rating.find({ profileId }),
+    dbService.findAll('watchHistory', { profileId: profileId.toString() }),
+    dbService.findAll('myList', { profileId: profileId.toString() }),
+    dbService.findAll('ratings', { profileId: profileId.toString() }),
   ]);
 
   // Extract preferred genres & watched content IDs
@@ -35,39 +37,41 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
   const preferredActors = new Set();
   const watchedMovieIds = new Set();
 
-  historyDocs.forEach((h) => {
-    if (h.contentId && h.contentId._id) {
-      watchedMovieIds.add(h.contentId._id.toString());
-      const movie = h.contentId;
-      const weight = (h.completionPercentage || 50) / 100;
-
-      if (Array.isArray(movie.genres)) {
-        movie.genres.forEach((g) => {
-          genreWeights[g] = (genreWeights[g] || 0) + weight * 2;
-        });
-      }
-      if (movie.director) preferredDirectors.add(movie.director);
-      if (Array.isArray(movie.cast)) {
-        movie.cast.forEach((actor) => preferredActors.add(actor));
+  for (const h of historyDocs) {
+    if (h.contentId) {
+      watchedMovieIds.add(h.contentId.toString());
+      const movie = await dbService.findById('movies', h.contentId);
+      if (movie) {
+        const weight = (h.completionPercentage || 50) / 100;
+        if (Array.isArray(movie.genres)) {
+          movie.genres.forEach((g) => {
+            genreWeights[g] = (genreWeights[g] || 0) + weight * 2;
+          });
+        }
+        if (movie.director) preferredDirectors.add(movie.director);
+        if (Array.isArray(movie.cast)) {
+          movie.cast.forEach((actor) => preferredActors.add(actor));
+        }
       }
     }
-  });
+  }
 
-  listDocs.forEach((item) => {
-    if (item.contentId && item.contentId._id) {
-      const movie = item.contentId;
-      if (Array.isArray(movie.genres)) {
-        movie.genres.forEach((g) => {
-          genreWeights[g] = (genreWeights[g] || 0) + 1.5;
-        });
+  for (const item of listDocs) {
+    if (item.contentId) {
+      const movie = await dbService.findById('movies', item.contentId);
+      if (movie) {
+        if (Array.isArray(movie.genres)) {
+          movie.genres.forEach((g) => {
+            genreWeights[g] = (genreWeights[g] || 0) + 1.5;
+          });
+        }
+        if (movie.director) preferredDirectors.add(movie.director);
       }
-      if (movie.director) preferredDirectors.add(movie.director);
     }
-  });
+  }
 
   ratingDocs.forEach((r) => {
-    if (r.score >= 4) {
-      // High score boosts preference
+    if (r.score >= 4 && r.contentId) {
       watchedMovieIds.add(r.contentId.toString());
     }
   });
@@ -78,13 +82,10 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
     genreWeights[g] = genreWeights[g] / maxGenreWeight;
   });
 
-  // 2. Query candidate movies
-  const candidateMovies = await Movie.find();
+  // 2. Compute hybrid scores
   const currentYear = new Date().getFullYear();
 
-  // 3. Compute hybrid scores
-  const scoredMovies = candidateMovies.map((movie) => {
-    // Already completely watched? Lower priority but don't completely hide
+  const scoredMovies = allMovies.map((movie) => {
     const isWatched = watchedMovieIds.has(movie._id.toString());
 
     // Signal 1: Genre Match (0.0 - 1.0)
@@ -105,7 +106,6 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
     }
 
     // Signal 3: Watch History Affinity (0.0 - 1.0)
-    // If genres align with recent favorites
     const watchHistoryScore = genreScore > 0 ? (genreScore + similarityScore) / 2 : 0.1;
 
     // Signal 4: Rating Preference (0.0 - 1.0)
@@ -121,7 +121,7 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
     const age = Math.max(0, currentYear - (movie.releaseYear || currentYear));
     const recencyScore = Math.max(0.2, 1 - age * 0.1);
 
-    // Hybrid formula with specified coefficients
+    // Hybrid formula
     let recommendationScore =
       genreScore * 0.25 +
       similarityScore * 0.20 +
@@ -131,7 +131,7 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
       trendingScore * 0.10 +
       recencyScore * 0.05;
 
-    // Apply soft penalty if already fully watched
+    // Soft penalty if already watched
     if (isWatched) {
       recommendationScore *= 0.6;
     }
@@ -149,27 +149,41 @@ export const getPersonalizedRecommendations = async (profileId, limit = 15) => {
 };
 
 export const getTrendingContent = async (limit = 15) => {
-  return await Movie.find({ trending: true })
-    .sort({ popularityScore: -1, releaseYear: -1 })
-    .limit(limit);
+  const movies = await dbService.findAll('movies');
+  const trendingMovies = movies.filter((m) => !!m.trending);
+  trendingMovies.sort(
+    (a, b) =>
+      (b.popularityScore || 0) - (a.popularityScore || 0) || (b.releaseYear || 0) - (a.releaseYear || 0)
+  );
+  return trendingMovies.slice(0, limit);
 };
 
 export const getPopularContent = async (limit = 15) => {
-  return await Movie.find()
-    .sort({ popularityScore: -1, viewsCount: -1 })
-    .limit(limit);
+  const movies = await dbService.findAll('movies');
+  movies.sort(
+    (a, b) =>
+      (b.popularityScore || 0) - (a.popularityScore || 0) || (b.viewsCount || 0) - (a.viewsCount || 0)
+  );
+  return movies.slice(0, limit);
 };
 
 export const getSimilarContent = async (contentId, limit = 10) => {
-  const target = await Movie.findById(contentId);
+  const target = await dbService.findById('movies', contentId);
   if (!target) return [];
 
-  const similar = await Movie.find({
-    _id: { $ne: target._id },
-    genres: { $in: target.genres },
-  })
-    .sort({ rating: -1, popularityScore: -1 })
-    .limit(limit);
+  const targetGenres = Array.isArray(target.genres) ? target.genres : [];
+  const allMovies = await dbService.findAll('movies');
 
-  return similar;
+  const similar = allMovies.filter((m) => {
+    if (m._id.toString() === target._id.toString()) return false;
+    if (!Array.isArray(m.genres)) return false;
+    return m.genres.some((g) => targetGenres.includes(g));
+  });
+
+  similar.sort(
+    (a, b) =>
+      (b.rating || 0) - (a.rating || 0) || (b.popularityScore || 0) - (a.popularityScore || 0)
+  );
+
+  return similar.slice(0, limit);
 };
