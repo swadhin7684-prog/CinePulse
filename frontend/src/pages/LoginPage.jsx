@@ -76,7 +76,11 @@ export const LoginPage = () => {
       if (err.code === 'auth/popup-closed-by-user') {
         return;
       }
-      toast.error(err.message || 'Google sign-in failed. Please try again.');
+      let msg = err.message || 'Google sign-in failed. Please try again.';
+      if (err.code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+        msg = `This domain (${window.location.hostname}) is not authorized in Firebase. Add it to Firebase Console > Authentication > Settings > Authorized domains.`;
+      }
+      toast.error(msg);
     } finally {
       setGoogleLoading(false);
     }
