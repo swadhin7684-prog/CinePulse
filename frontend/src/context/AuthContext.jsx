@@ -6,6 +6,8 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from 'firebase/auth';
 import { auth } from '../firebase';
 import api from '../services/api';
@@ -303,6 +305,65 @@ export const AuthProvider = ({ children }) => {
     return { user: userData, token: idToken, activeProfile: primary };
   };
 
+  /**
+   * Continue with Google Sign-In via Firebase Authentication
+   */
+  const loginWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const userCredential = await signInWithPopup(auth, provider);
+    const firebaseUser = userCredential.user;
+
+    const idToken = await firebaseUser.getIdToken();
+    localStorage.setItem('cinepulse_token', idToken);
+    setToken(idToken);
+
+    const fallbackUser = {
+      _id: firebaseUser.uid,
+      uid: firebaseUser.uid,
+      name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+      email: firebaseUser.email,
+      role: firebaseUser.email === 'admin@cinepulse.io' ? 'admin' : 'user',
+      emailVerified: true,
+      avatar: firebaseUser.photoURL || 'avatar-1',
+      profiles: [
+        {
+          _id: 'default-profile',
+          name: (firebaseUser.displayName || 'Primary').split(' ')[0],
+          avatar: firebaseUser.photoURL || 'avatar-1',
+          maturityRating: 'ALL',
+          isKids: false,
+        },
+      ],
+    };
+
+    // Optional background sync with backend
+    try {
+      const response = await api.post(
+        '/auth/login',
+        { idToken },
+        { headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      const payload = response.data || response;
+      if (payload?.user) {
+        fallbackUser.profiles = payload.user.profiles || fallbackUser.profiles;
+        if (payload.activeProfile) {
+          fallbackUser.activeProfile = payload.activeProfile;
+        }
+      }
+    } catch (e) {
+      // Proceed without DB dependency
+    }
+
+    setUser(fallbackUser);
+    setProfiles(fallbackUser.profiles);
+    const primary = fallbackUser.activeProfile || fallbackUser.profiles[0];
+    setActiveProfile(primary);
+    localStorage.setItem('cinepulse_active_profile', JSON.stringify(primary));
+
+    return { user: fallbackUser, token: idToken, activeProfile: primary };
+  };
+
   const logout = async () => {
     localStorage.removeItem('cinepulse_token');
     localStorage.removeItem('cinepulse_active_profile');
@@ -354,6 +415,7 @@ export const AuthProvider = ({ children }) => {
     showProfileSelector,
     setShowProfileSelector,
     login,
+    loginWithGoogle,
     register,
     resendVerification,
     logout,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Play, Lock, Mail, ArrowRight, Shield, User, Loader2 } from 'lucide-react';
+import { Play, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { EmailVerificationScreen } from '../components/auth/EmailVerificationScreen';
@@ -9,9 +9,10 @@ export const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState(null);
 
-  const { login, resendVerification } = useAuth();
+  const { login, loginWithGoogle, resendVerification } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
@@ -31,7 +32,7 @@ export const LoginPage = () => {
       toast.success('Welcome back to CinePulse!');
       navigate(from, { replace: true });
     } catch (err) {
-      // Requirement: If email not verified on Login -> block + show same screen
+      // If email not verified on Login -> block + show same screen
       if (
         err.message === 'EMAIL_NOT_VERIFIED' ||
         err.code === 'auth/email-not-verified' ||
@@ -65,10 +66,20 @@ export const LoginPage = () => {
     }
   };
 
-  const fillCredentials = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setUnverifiedEmail(null);
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await loginWithGoogle();
+      toast.success('Signed in with Google successfully!');
+      navigate(from, { replace: true });
+    } catch (err) {
+      if (err.code === 'auth/popup-closed-by-user') {
+        return;
+      }
+      toast.error(err.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   // If email is not verified on Login -> block + show the exact same screen
@@ -150,7 +161,7 @@ export const LoginPage = () => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || googleLoading}
               className="btn-primary w-full text-sm !py-3 font-bold mt-2"
             >
               {loading ? (
@@ -167,33 +178,60 @@ export const LoginPage = () => {
             </button>
           </form>
 
-          {/* Quick Demo Login Preset Buttons */}
-          <div className="pt-2 border-t border-white/10 space-y-2">
-            <span className="text-[11px] text-slate-400 font-medium block text-center">
-              Quick 1-Click Demo Credentials:
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => fillCredentials('user@cinepulse.io', 'Password123')}
-                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <User className="w-3.5 h-3.5 text-amber-400" />
-                Demo User
-              </button>
-              <button
-                type="button"
-                onClick={() => fillCredentials('admin@cinepulse.io', 'Password123')}
-                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Shield className="w-3.5 h-3.5 text-amber-400" />
-                Admin Demo
-              </button>
+          {/* Divider */}
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-[#0e1017] px-3 text-slate-400 font-medium tracking-wider">
+                Or continue with
+              </span>
             </div>
           </div>
 
+          {/* Continue with Google Button */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={googleLoading || loading}
+            className="w-full py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-3 shadow-sm hover:shadow-md hover:border-white/30 group active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {googleLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span className="text-slate-300">Connecting to Google...</span>
+              </>
+            ) : (
+              <>
+                {/* Official Google 'G' Logo SVG */}
+                <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.04 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+                <span className="tracking-wide text-slate-200 group-hover:text-white transition-colors">
+                  Continue with Google
+                </span>
+              </>
+            )}
+          </button>
+
           {/* Register Prompt */}
-          <div className="text-center text-xs text-slate-400">
+          <div className="text-center text-xs text-slate-400 pt-2 border-t border-white/10">
             New to CinePulse?{' '}
             <Link to="/register" className="text-amber-400 hover:underline font-semibold">
               Create an account now
