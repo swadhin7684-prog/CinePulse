@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 import { initializeApp, getApps, cert, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -84,6 +87,24 @@ function getFirebaseCredentials() {
       return applicationDefault();
     } catch (e) {
       console.warn('[Firebase] applicationDefault failed:', e.message);
+    }
+  }
+
+  // Option 4: Local serviceAccountKey.json file if placed in project directory
+  const possiblePaths = [
+    path.resolve('serviceAccountKey.json'),
+    path.resolve('backend/serviceAccountKey.json'),
+    path.resolve('backend/src/config/serviceAccountKey.json'),
+  ];
+  for (const keyPath of possiblePaths) {
+    if (fs.existsSync(keyPath)) {
+      try {
+        const raw = fs.readFileSync(keyPath, 'utf8');
+        console.log(`[Firebase] Loaded service account credentials from: ${keyPath}`);
+        return cert(JSON.parse(raw));
+      } catch (e) {
+        console.warn(`[Firebase] Failed to load ${keyPath}:`, e.message);
+      }
     }
   }
 
@@ -381,6 +402,19 @@ export const getDb = () => {
 // Export active db instance
 db = getDb();
 export { db, isLive as isLiveFirestore };
+
+// Export Firebase Admin Auth instance (for managing users in Firebase Authentication console)
+export const getAdminAuth = () => {
+  if (isLive) {
+    try {
+      return getAuth();
+    } catch (e) {
+      console.warn('[Firebase Auth] Failed to get Auth instance:', e.message);
+      return null;
+    }
+  }
+  return null;
+};
 
 // Health check utility function
 export const checkFirestoreHealth = async () => {

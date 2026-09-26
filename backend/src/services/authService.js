@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import * as dbService from './firestoreDb.js';
+import { getAdminAuth } from '../config/firebase.js';
 
 const generateToken = (id) => {
   return jwt.sign(
@@ -58,6 +59,22 @@ export const registerUser = async ({ name, email, password }) => {
     endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     maxProfiles: 5,
   });
+
+  // 4. Optionally sync to Firebase Authentication (so it shows in Firebase Console Users tab)
+  const adminAuth = getAdminAuth();
+  if (adminAuth) {
+    try {
+      await adminAuth.createUser({
+        uid: user._id,
+        email: normalizedEmail,
+        password: password,
+        displayName: name.trim(),
+      });
+      console.log('[Firebase Auth] User synced to Firebase Console:', normalizedEmail);
+    } catch (authErr) {
+      console.warn('[Firebase Auth] Notice:', authErr.message);
+    }
+  }
 
   const token = generateToken(user._id);
 
